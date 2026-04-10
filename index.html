@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arcade Pong + Gemini AI</title>
+    <!-- Import a classic arcade font -->
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Basic reset and page styling */
+        html, body {
+            height: 100%;
+            margin: 0;
+            font-family: 'Press Start 2P', cursive;
+            background-color: #0a0a0a;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            color: #4dff00;
+            text-shadow: 0 0 5px #4dff00, 0 0 10px #4dff00;
+            margin: 10px 0;
+        }
+
+        /* Game container */
+        .game-container {
+            border: 4px solid #4dff00;
+            border-radius: 10px;
+            box-shadow: 0 0 20px #4dff00, inset 0 0 15px #4dff00;
+            background-color: #000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            max-width: 95vw;
+            max-height: 85vh;
+            position: relative;
+        }
+
+        /* Info bar for score and lives */
+        .info-bar {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+
+        canvas {
+            background-color: #000;
+            display: block;
+            border-radius: 5px;
+            max-width: 100%;
+            cursor: none;
+        }
+
+        /* AI Message Box */
+        #aiStatus {
+            font-size: 0.6rem;
+            color: #00ffff;
+            margin-top: 10px;
+            height: 20px;
+            text-align: center;
+        }
+
+        /* Overlay UI */
+        .overlay {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.95);
+            border: 3px solid #4dff00;
+            padding: 20px;
+            text-align: center;
+            z-index: 100;
+            width: 80%;
+            max-width: 400px;
+        }
+
+        #gameOverScreen { border-color: #ff0000; box-shadow: 0 0 20px #ff0000; }
+        
+        #aiCommentary {
+            font-size: 0.7rem;
+            line-height: 1.4;
+            color: #00ffff;
+            margin: 15px 0;
+            min-height: 50px;
+        }
+
+        button {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 0.8rem;
+            color: #000;
+            background-color: #4dff00;
+            border: none;
+            padding: 12px;
+            cursor: pointer;
+            margin: 5px;
+            width: 100%;
+        }
+
+        button:disabled {
+            background-color: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        #aiAssistBtn {
+            background-color: #00ffff;
+            margin-top: 10px;
+            width: auto;
+            padding: 8px 15px;
+            font-size: 0.6rem;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 2px solid #00ffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+    <h1>ARCADE PONG ✨ AI</h1>
+
+    <div class="game-container">
+        <div class="info-bar">
+            <span id="scoreDisplay">SCORE: 0</span>
+            <span id="livesDisplay">LIVES: 3</span>
+        </div>
+        
+        <canvas id="gameCanvas"></canvas>
+        
+        <div id="aiStatus">Ready for action...</div>
+        
+        <button id="aiAssistBtn">✨ AI AUTO-PILOT (3s)</button>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen" class="overlay">
+            <h2 style="color: #ff0000;">GAME OVER</h2>
+            <div id="aiCommentary">Loading AI performance review...</div>
+            <button id="restartButton">PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = ""; // Provided by environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'arcade-pong-ai';
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const livesDisplay = document.getElementById('livesDisplay');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const restartButton = document.getElementById('restartButton');
+        const aiCommentary = document.getElementById('aiCommentary');
+        const aiStatus = document.getElementById('aiStatus');
+        const aiAssistBtn = document.getElementById('aiAssistBtn');
+
+        const PADDLE_HEIGHT = 15;
+        const PADDLE_WIDTH = 100;
+        const BALL_RADIUS = 8;
+
+        let score, lives, gameRunning, animationFrameId;
+        let rightPressed = false, leftPressed = false;
+        let isAiAssisting = false;
+
+        let ball = { x: 0, y: 0, dx: 0, dy: 0, speed: 5 };
+        let paddle = { x: 0, y: 0, width: PADDLE_WIDTH, height: PADDLE_HEIGHT, speed: 8 };
+
+        // --- GEMINI API INTEGRATIONS ---
+
+        async function callGemini(prompt, systemInstruction = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemInstruction }] }
+            };
+
+            let delay = 1000;
+            for (let i = 0; i < 5; i++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    const result = await response.json();
+                    return result.candidates?.[0]?.content?.parts?.[0]?.text;
+                } catch (e) {
+                    await new Promise(r => setTimeout(r, delay));
+                    delay *= 2;
+                }
+            }
+            return "AI is offline. Keep playing!";
+        }
+
+        async function getAiCommentary() {
+            aiCommentary.innerHTML = 'Analyzing skill... <div class="loader"></div>';
+            const prompt = `The player finished a game of Pong. Score: ${score}. Lives lost: 3. Give a 1-sentence arcade-style review of their performance. Be a bit snarky or cool.`;
+            const system = "You are a classic 80s arcade machine AI. Use gamer slang from that era.";
+            const text = await callGemini(prompt, system);
+            aiCommentary.textContent = text;
+        }
+
+        async function activateAiAssist() {
+            if (isAiAssisting) return;
+            isAiAssisting = true;
+            aiAssistBtn.disabled = true;
+            aiStatus.textContent = "✨ AI CALCULATING TRAJECTORY...";
+            
+            // Simulation of AI "solving" the path
+            const aiDecision = await callGemini(
+                `The ball is at (${ball.x}, ${ball.y}) moving with speed (${ball.dx}, ${ball.dy}). The paddle is at x=${paddle.x}. Should I move left or right? Keep it short.`,
+                "You are the game logic assistant."
+            );
+
+            aiStatus.textContent = "✨ AI AUTO-PILOT ACTIVE!";
+            
+            // Auto-move for 3 seconds
+            const startTime = Date.now();
+            const assistInterval = setInterval(() => {
+                const targetX = ball.x - (paddle.width / 2);
+                const diff = targetX - paddle.x;
+                paddle.x += Math.sign(diff) * paddle.speed;
+                
+                if (Date.now() - startTime > 3000) {
+                    clearInterval(assistInterval);
+                    isAiAssisting = false;
+                    aiAssistBtn.disabled = false;
+                    aiStatus.textContent = "AI Cooldown...";
+                    setTimeout(() => aiStatus.textContent = "Ready for action...", 2000);
+                }
+            }, 1000/60);
+        }
+
+        // --- GAME ENGINE ---
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const maxWidth = container.clientWidth - 20;
+            const maxHeight = window.innerHeight * 0.5;
+            canvas.width = maxWidth;
+            canvas.height = maxHeight;
+            if (!gameRunning) initGame();
+        }
+
+        function initGame() {
+            score = 0;
+            lives = 3;
+            gameRunning = true;
+            gameOverScreen.style.display = 'none';
+            paddle.y = canvas.height - paddle.height - 10;
+            paddle.x = (canvas.width - paddle.width) / 2;
+            resetBall();
+            updateUI();
+        }
+
+        function resetBall() {
+            ball.x = canvas.width / 2;
+            ball.y = 50;
+            ball.speed = 5 + (score * 0.2); // Gradually speed up
+            ball.dx = ball.speed * (Math.random() > 0.5 ? 1 : -1);
+            ball.dy = ball.speed;
+        }
+
+        function updateUI() {
+            scoreDisplay.textContent = `SCORE: ${score}`;
+            livesDisplay.textContent = `LIVES: ${lives}`;
+        }
+
+        function moveBall() {
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            if (ball.x + BALL_RADIUS > canvas.width || ball.x - BALL_RADIUS < 0) ball.dx *= -1;
+            if (ball.y - BALL_RADIUS < 0) ball.dy *= -1;
+
+            if (ball.y + BALL_RADIUS > paddle.y && 
+                ball.x > paddle.x && ball.x < paddle.x + paddle.width) {
+                ball.dy = -Math.abs(ball.dy);
+                score++;
+                updateUI();
+            }
+
+            if (ball.y + BALL_RADIUS > canvas.height) {
+                lives--;
+                updateUI();
+                if (lives <= 0) endGame();
+                else resetBall();
+            }
+        }
+
+        function updatePaddle() {
+            if (isAiAssisting) return; // AI takes control
+            if (rightPressed && paddle.x < canvas.width - paddle.width) paddle.x += paddle.speed;
+            if (leftPressed && paddle.x > 0) paddle.x -= paddle.speed;
+        }
+
+        function endGame() {
+            gameRunning = false;
+            gameOverScreen.style.display = 'block';
+            getAiCommentary();
+        }
+
+        function draw() {
+            if (!gameRunning) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Paddle
+            ctx.fillStyle = isAiAssisting ? "#00ffff" : "#ffffff";
+            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+            
+            // Ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, BALL_RADIUS, 0, Math.PI * 2);
+            ctx.fillStyle = "#4dff00";
+            ctx.fill();
+            ctx.closePath();
+
+            updatePaddle();
+            moveBall();
+            animationFrameId = requestAnimationFrame(draw);
+        }
+
+        // --- HANDLERS ---
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "ArrowRight" || e.code === "KeyD") rightPressed = true;
+            if (e.key === "ArrowLeft" || e.code === "KeyA") leftPressed = true;
+        });
+        document.addEventListener("keyup", (e) => {
+            if (e.key === "ArrowRight" || e.code === "KeyD") rightPressed = false;
+            if (e.key === "ArrowLeft" || e.code === "KeyA") leftPressed = false;
+        });
+        canvas.addEventListener("mousemove", (e) => {
+            if (isAiAssisting) return;
+            const rect = canvas.getBoundingClientRect();
+            paddle.x = (e.clientX - rect.left) - paddle.width / 2;
+        });
+
+        aiAssistBtn.addEventListener('click', activateAiAssist);
+        restartButton.addEventListener('click', () => {
+            initGame();
+            draw();
+        });
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        draw();
+    </script>
+</body>
+</html>
